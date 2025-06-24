@@ -56,20 +56,53 @@ where $F$ is the applied force, $A$ is the cross-sectional area, $Delta L$ is th
 
 == Measurement Values
 
-*Data Table Template:*
-#table(
-  columns: 6,
-  [Material],
-  [Load (kg)],
-  [Voltage (V)],
-  [Strain (με)],
-  [Stress (MPa)],
-  [Trial ],
+#let parse_measurements(path) = {
+  let lines = read(path).split("\n").slice(4, -1)
+  lines.map(line => {
+    let columns = line
+      .split("\t")
+      .map(x => x.replace(",", ".").trim())
+      .filter(x => x != "")
+      .map(x => float(x))
+    (
+      time: columns.at(0),
+      voltage: columns.at(1),
+    )
+  })
+}
 
-  [Al], [], [], [], [], [],
-  [Steel], [], [], [], [], [],
-  [Brass], [], [], [], [], [],
-  [Plexiglas], [], [], [], [], [],
+#let data = parse_measurements("data/1/2KG2_5VAlu.data")
+
+=== example diagram
+
+#let split_baseline_pulse(data, derivative_threshold: 0.01) = {
+  let derivatives = range(data.len() - 1).map(i => {
+    let dt = data.at(i + 1).time - data.at(i).time
+    let dv = data.at(i + 1).voltage - data.at(i).voltage
+    calc.abs(dv / dt) // absolute derivative
+  })
+
+  // Classify points (first point is baseline by default)
+  let classifications = (
+    (true,) + derivatives.map(deriv => deriv < derivative_threshold)
+  )
+
+  data.zip(classifications)
+}
+
+#let split_data = split_baseline_pulse(data, derivative_threshold: 0.1)
+
+#lq.diagram(
+  width: 12cm,
+  height: 8cm,
+  xlabel: [time t in s],
+  ylabel: [voltage U in V],
+  lq.plot(mark: none, data.map(x => x.time), data.map(x => {
+    x.voltage
+  })),
+  lq.plot(mark: none, split_data.map(x => x.first().time), split_data.map(x => {
+    if x.last() == true { 1 } else { 0 }
+  })),
 )
 
 == Data Analysis

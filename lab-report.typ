@@ -10,7 +10,12 @@
   set page(paper: "a4")
   set text(lang: language, font: "New Computer Modern", size: 11pt)
 
-  set heading(numbering: "1.1")
+  set heading(numbering: (..nums) => {
+    let level = nums.pos().len()
+    if level <= 2 {
+      numbering("1.1", ..nums)
+    }
+  })
 
   set math.equation(numbering: "(1)")
   set align(center)
