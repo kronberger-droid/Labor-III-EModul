@@ -4,11 +4,11 @@
 #import "lib.typ": linear_fit
 
 #show: lab-report.with(
-  title: "Electron Spin Resonance",
+  title: "Elasticity Modulus",
   authors: ("Raul Wagner", "Martin Kronberger"),
-  supervisor: "Victor Lindenbauer",
+  supervisor: "",
   groupnumber: "301",
-  date: datetime(day: 4, month: 6, year: 2025),
+  date: datetime(day: 18, month: 6, year: 2025),
 )
 
 #outline()
