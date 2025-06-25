@@ -1,7 +1,8 @@
 #import "lab-report.typ": lab-report
 #import "@preview/lilaq:0.3.0" as lq
 #import calc: ln, round
-#import "lib.typ": linear_fit
+#import "lib.typ": *
+#import "datasets.typ": datasets
 
 #show: lab-report.with(
   title: "Elasticity Modulus",
@@ -56,53 +57,93 @@ where $F$ is the applied force, $A$ is the cross-sectional area, $Delta L$ is th
 
 == Measurement Values
 
-#let parse_measurements(path) = {
-  let lines = read(path).split("\n").slice(4, -1)
-  lines.map(line => {
-    let columns = line
-      .split("\t")
-      .map(x => x.replace(",", ".").trim())
-      .filter(x => x != "")
-      .map(x => float(x))
-    (
-      time: columns.at(0),
-      voltage: columns.at(1),
-    )
-  })
-}
+#let path = "data/1/2KG5VStahl.data"
+#let window_width = 15
+#let threshold = 0.12
 
-#let data = parse_measurements("data/1/2KG2_5VAlu.data")
+#let data = parse_measurements(path)
 
-=== example diagram
+#let clean_data = remove_outliers_median(
+  data,
+  window_size: 12,
+  threshold_factor: 0.1,
+)
 
-#let split_baseline_pulse(data, derivative_threshold: 0.01) = {
-  let derivatives = range(data.len() - 1).map(i => {
-    let dt = data.at(i + 1).time - data.at(i).time
-    let dv = data.at(i + 1).voltage - data.at(i).voltage
-    calc.abs(dv / dt) // absolute derivative
-  })
+#let avg_data = rolling_avg(clean_data, window_width)
 
-  // Classify points (first point is baseline by default)
-  let classifications = (
-    (true,) + derivatives.map(deriv => deriv < derivative_threshold)
-  )
+#let split_data = segment_by_state(classify_points(
+  avg_data,
+  derivative_threshold: threshold,
+))
 
-  data.zip(classifications)
-}
+#let drift_params = fit_quadratic(extract_by_state(split_data, "baseline"))
 
-#let split_data = split_baseline_pulse(data, derivative_threshold: 0.1)
+#let corrected_segments = correct_segments(split_data, drift_params)
 
-#lq.diagram(
-  width: 12cm,
-  height: 8cm,
-  xlabel: [time t in s],
-  ylabel: [voltage U in V],
-  lq.plot(mark: none, data.map(x => x.time), data.map(x => {
-    x.voltage
-  })),
-  lq.plot(mark: none, split_data.map(x => x.first().time), split_data.map(x => {
-    if x.last() == true { 1 } else { 0 }
-  })),
+#let segment_means = corrected_segments.map(segment => (
+  state: segment.state,
+  mean_voltage: segment.data.map(p => p.voltage).sum() / segment.data.len(),
+))
+
+#let baseline_points = extract_by_state(corrected_segments, "baseline")
+
+#let pulse_points = extract_by_state(corrected_segments, "pulse")
+
+#let avg_pulse_height = get_mean_pulse_height(path)
+
+#figure(
+  caption: [
+    After applying a rolling average onto the raw data, it is segmented into baseline, pulses, rising and falling slopes.
+    Afterwards a quadratic function is fitted onto the baseline dataset and subtracted from the segmented dataset.
+    This results in clear baseline and pulse datasets which can be averaged over.
+  ],
+  lq.diagram(
+    title: [Illustration of data preparation for 2 Kg Aluminium at 2.5 V],
+    width: 12cm,
+    height: 8cm,
+    xlabel: [time t in s],
+    ylabel: [voltage U in V],
+    // ylim: (-0.1, 1.8),
+    legend: (position: top + left),
+    lq.plot(
+      label: [Raw data],
+      mark: none,
+      data.map(x => x.time),
+      data.map(x => {
+        x.voltage
+      }),
+    ),
+    lq.plot(
+      label: [Averaged data],
+      mark: none,
+      clean_data.map(x => x.time),
+      clean_data.map(x => {
+        x.voltage
+      }),
+    ),
+    lq.line(
+      label: [Average pulse height: $Delta U_"avg" = #round(avg_pulse_height, digits: 2)$],
+      stroke: (dash: (2pt, 1pt)),
+      (0, avg_pulse_height),
+      (120, avg_pulse_height),
+    ),
+    lq.plot(
+      label: [Baseline segments],
+      stroke: none,
+      baseline_points.map(x => x.time),
+      baseline_points.map(p => {
+        p.voltage
+      }),
+    ),
+    lq.plot(
+      label: [Pulse segments],
+      stroke: none,
+      pulse_points.map(x => x.time),
+      pulse_points.map(p => {
+        p.voltage
+      }),
+    ),
+  ),
 )
 
 == Data Analysis
@@ -115,6 +156,76 @@ where $F$ is the applied force, $A$ is the cross-sectional area, $Delta L$ is th
 6. Perform error propagation analysis considering individual measurement uncertainties
 7. Compare experimental values with literature values
 
+#let material_properties = (
+  "Alu": (
+    D: 14.85e-3, // outer diameter in meters
+    d: 3.7e-3, // inner diameter in meters
+    area: calc.pi / 4 * (calc.pow(14.85e-3, 2) - calc.pow(3.7e-3, 2)),
+  ),
+  "Stahl": (
+    D: 15e-3,
+    d: 2.2e-3,
+    area: calc.pi / 4 * (calc.pow(15e-3, 2) - calc.pow(2.2e-3, 2)),
+  ),
+  "Messing": (
+    D: 15.8e-3,
+    d: 3e-3,
+    area: calc.pi / 4 * (calc.pow(15.8e-3, 2) - calc.pow(3e-3, 2)),
+  ),
+  "Glas": (
+    // Plexiglas
+    D: 15.2e-3,
+    d: 7.7e-3,
+    area: calc.pi / 4 * (calc.pow(15.2e-3, 2) - calc.pow(7.7e-3, 2)),
+  ),
+)
+
+#let calculate_strain(pulse_height_volts, bridge_voltage) = {
+  let voltage_ratio = pulse_height_volts / bridge_voltage
+  let k_factor = 2.03
+  voltage_ratio * 2 / k_factor
+}
+
+// Calculate results with strain and elasticity modulus
+#let results = datasets.map(dataset => {
+  let pulse_height = get_mean_pulse_height(dataset.path)
+  let strain = calculate_strain(pulse_height, dataset.voltage)
+  let material_props = material_properties.at(dataset.material)
+  let stress = (dataset.weight * 9.81) / material_props.area // Pa
+  let elasticity_modulus = stress / strain // Pa
+
+  (
+    ..dataset,
+    pulse_height: pulse_height,
+    strain: strain,
+    stress: stress,
+    elasticity_modulus: elasticity_modulus,
+    cross_area: material_props.area,
+  )
+})
+
+#table(
+  columns: 7,
+  align: center,
+  [Weight (kg)],
+  [Voltage (V)],
+  [Material],
+  [Pulse Height (V)],
+  [Strain],
+  [Stress (MPa)],
+  [E-Modulus (GPa)],
+  ..results
+    .map(r => (
+      str(r.weight),
+      str(r.voltage),
+      r.material,
+      str(calc.round(r.pulse_height, digits: 4)),
+      str(calc.round(r.strain * 1e6, digits: 1)), // microstrains
+      str(calc.round(r.stress / 1e6, digits: 2)), // MPa
+      str(calc.round(r.elasticity_modulus / 1e9, digits: 2)), // GPa
+    ))
+    .flatten(),
+)
 
 = Bending Beam Analysis
 
