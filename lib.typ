@@ -1,3 +1,5 @@
+#import "@preview/lilaq:0.3.0" as lq
+
 #let linear_fit(xs, ys) = {
   let n = xs.len()
   let Sx = xs.sum()
@@ -55,7 +57,7 @@
     })
 }
 
-#let remove_outliers_median(data, window_size: 13, threshold_factor: 0.1) = {
+#let remove_outliers_median(data, window_size: 61, threshold_factor: 0.1) = {
   data
     .enumerate()
     .map(((i, point)) => {
@@ -218,6 +220,19 @@
   ))
 }
 
+#let correct_segments_linear(seg_data, drift_params) = {
+  seg_data.map(segment => (
+    state: segment.state,
+    data: segment.data.map(point => (
+      time: point.time,
+      voltage: point.voltage
+        - (
+          drift_params.at(0) * point.time + drift_params.at(1)
+        ),
+    )),
+  ))
+}
+
 #let extract_by_state(seg_data, state) = {
   seg_data.filter(x => x.state == state).map(x => x.data).flatten()
 }
@@ -258,4 +273,122 @@
   let avg_pulse_height = avg_pulse - avg_baseline
 
   avg_pulse_height
+}
+
+#let get_pulse_means(
+  path,
+  slice_front: 60,
+  slice_back: 30,
+  rolling_window: 21,
+  derivative_threshold: 0.1,
+) = {
+  let data = parse_measurements(path).slice(slice_front, -slice_back)
+  let clean_data = remove_outliers_median(
+    data,
+    window_size: 21,
+    threshold_factor: 0.1,
+  )
+
+  let avg_data = rolling_avg(clean_data, 5)
+
+  let segmented_data = segment_by_state(classify_points(avg_data))
+
+  let baseline = extract_by_state(segmented_data, "baseline")
+  let drift = linear_fit(baseline.map(x => x.time), baseline.map(y => {
+    y.voltage
+  }))
+
+  let corrected_segments = correct_segments_linear(segmented_data, drift)
+
+  // Extract only pulse segments and calculate their means
+  let pulse_segments = corrected_segments.filter(segment => (
+    segment.state == "pulse"
+  ))
+
+  pulse_segments.map(segment => {
+    segment.data.map(p => p.voltage).sum() / segment.data.len()
+  })
+}
+
+#let area_circle_strip(diameter, strip_height) = {
+  let radius = diameter / 2
+  let circle_area = calc.pi * radius * radius
+
+  // Safety check
+  if strip_height >= diameter {
+    return circle_area
+  }
+
+  // Height of each cap that gets removed
+  let cap_height = (diameter - strip_height) / 2
+
+  // For a circular segment with height h:
+  let r_minus_h = radius - cap_height
+  let angle_rad = calc.acos(r_minus_h / radius) / 1rad
+  let triangle_base = calc.sqrt(
+    2 * radius * cap_height - cap_height * cap_height,
+  )
+  let segment_area = radius * radius * angle_rad - r_minus_h * triangle_base
+
+  // Remove two segments (top and bottom)
+  circle_area - 2 * segment_area
+}
+
+#let process_single_dataset(dataset, masses) = {
+  let pulse_means = get_pulse_means(
+    dataset.path,
+    slice_front: dataset.slice_front,
+    slice_back: dataset.slice_back,
+    rolling_window: dataset.rolling_window,
+    derivative_threshold: dataset.derivative_threshold,
+  )
+
+  // Convert masses to forces (F = mg, with g ≈ 9.81 m/s²)
+  let forces = masses.map(m => m * 9.81)
+
+  // Return processed data
+  (
+    voltage: dataset.voltage,
+    path: dataset.path,
+    forces: forces,
+    deflections: pulse_means,
+    num_pulses: pulse_means.len(),
+  )
+}
+
+// Process all datasets
+#let process_all_datasets(datasets, masses_list) = {
+  datasets
+    .enumerate()
+    .map(((i, dataset)) => {
+      process_single_dataset(dataset, masses_list)
+    })
+}
+
+// Plot multiple datasets on same graph
+#let plot_multiple_datasets(
+  processed_datasets,
+  title: "Force vs Deflection Comparison",
+) = {
+  let colors = (blue, red, green, orange)
+
+  lq.diagram(
+    width: 14cm,
+    height: 10cm,
+    ..processed_datasets
+      .enumerate()
+      .map(((i, dataset)) => {
+        let color = colors.at(calc.rem(i, colors.len()))
+        lq.plot(
+          mark: "o",
+          dataset.deflections,
+          dataset.forces,
+          stroke: none,
+          label: str(dataset.voltage) + "V",
+        )
+      }),
+    xlabel: "Deflection w (V)",
+    ylabel: "Force F (N)",
+    title: title,
+  )
 }

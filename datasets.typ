@@ -1,5 +1,4 @@
-
-#let datasets = (
+#let datasets_1 = (
   // Aluminum
   (
     weight: 2,
@@ -113,23 +112,68 @@
     voltage: 5,
     material: "Stahl",
     path: "data/1/2KG5VStahl.data",
-    rolling_window: 8,
-    derivative_threshold: 0.03,
+    rolling_window: 11,
+    derivative_threshold: 0.09,
   ),
   (
     weight: 5,
     voltage: 2.5,
     material: "Stahl",
     path: "data/1/5KG2_5VStahl.data",
-    rolling_window: 10,
-    derivative_threshold: 0.02,
+    rolling_window: 11,
+    derivative_threshold: 0.09,
   ),
   (
     weight: 5,
     voltage: 5,
     material: "Stahl",
     path: "data/1/5KG5VStahl.data",
-    rolling_window: 6,
-    derivative_threshold: 0.04,
+    rolling_window: 11,
+    derivative_threshold: 0.09,
   ),
+)
+#let datasets_2 = (
+  (
+    voltage: 2.5,
+    path: "data/2/bekannte_gewichte_2_5V.data",
+    slice_front: 60,
+    slice_back: 80,
+    rolling_window: 11,
+    derivative_threshold: 0.1,
+  ),
+  (
+    voltage: 5,
+    path: "data/2/bekannte_gewichte_5V.data",
+    slice_front: 60,
+    slice_back: 80,
+    rolling_window: 11,
+    derivative_threshold: 0.1,
+  ),
+  (
+    voltage: 2.5,
+    path: "data/2/unbekannte_gewichte_2_5V.data",
+    slice_front: 30,
+    slice_back: 30,
+    rolling_window: 11,
+    derivative_threshold: 0.1,
+  ),
+  (
+    voltage: 5,
+    path: "data/2/unbekannte_gewichte_5V.data",
+    slice_front: 60,
+    slice_back: 30,
+    rolling_window: 11,
+    derivative_threshold: 0.1,
+  ),
+)
+
+// in Kg
+#let masses = (
+  0.5,
+  0.2,
+  0.1,
+  0.05,
+  0.02,
+  0.01,
+  0.005,
 )
